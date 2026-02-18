@@ -5,7 +5,6 @@ export const PACK_REWARDS: Record<string, { winner: string; loser: string }> = {
 
 export async function grantMatchRewards(
   supabase: any,
-  matchId: string,
   players: { userId: string; placement: number; isAi: boolean }[],
   isVsAi: boolean
 ): Promise<void> {
@@ -17,23 +16,30 @@ export async function grantMatchRewards(
 
     const cardId = `PACK_TOKEN_${tier.toUpperCase()}`;
     // Check if row exists first, then increment or insert
-    const { data: existing } = await supabase
+    const { data: existing, error: selectErr } = await supabase
       .from('user_collections')
       .select('quantity')
       .eq('user_id', p.userId)
       .eq('card_id', cardId)
       .maybeSingle();
 
+    if (selectErr) {
+      console.error(`Failed to check collection for ${p.userId}:`, selectErr.message);
+      continue;
+    }
+
     if (existing) {
-      await supabase
+      const { error: updateErr } = await supabase
         .from('user_collections')
         .update({ quantity: existing.quantity + 1 })
         .eq('user_id', p.userId)
         .eq('card_id', cardId);
+      if (updateErr) console.error(`Failed to update reward for ${p.userId}:`, updateErr.message);
     } else {
-      await supabase
+      const { error: insertErr } = await supabase
         .from('user_collections')
         .insert({ user_id: p.userId, card_id: cardId, quantity: 1 });
+      if (insertErr) console.error(`Failed to insert reward for ${p.userId}:`, insertErr.message);
     }
   }
 }

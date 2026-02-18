@@ -35,22 +35,24 @@ Deno.serve(async (req) => {
   const living = state.turn_order.filter(uid => !state.players[uid].is_eliminated);
   if (living.length === 1) {
     await supabase.from('game_rooms').update({ status: 'completed' }).eq('id', room_id);
-    await supabase.from('match_history').insert({ room_id, winner_id: living[0] });
+    const { error: insertMatchErr } = await supabase.from('match_history').insert({ room_id, winner_id: living[0] });
 
-    const { data: match } = await supabase
+    const { data: match, error: matchErr } = await supabase
       .from('match_history')
       .select('id')
       .eq('room_id', room_id)
       .single();
 
-    if (match) {
+    if (matchErr || insertMatchErr) {
+      console.error('Failed to fetch match for rewards:', (matchErr || insertMatchErr)?.message);
+    } else if (match) {
       const isVsAi = state.turn_order.some((uid: string) => uid.startsWith('ai-'));
       const playerResults = state.turn_order.map((uid: string) => ({
         userId: uid,
         placement: uid === living[0] ? 1 : 2,
         isAi: uid.startsWith('ai-')
       }));
-      await grantMatchRewards(supabase, match.id, playerResults, isVsAi);
+      await grantMatchRewards(supabase, playerResults, isVsAi);
     }
 
     state.log.push(`Game over! Winner: ${living[0]}`);
