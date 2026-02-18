@@ -1,4 +1,4 @@
-import { redirect } from '@sveltejs/kit';
+import { redirect, fail } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -25,7 +25,7 @@ export const actions: Actions = {
       .select('id')
       .single();
 
-    if (error || !deck) return;
+    if (error || !deck) return fail(500, { message: 'Failed to create deck' });
     redirect(303, `/decks/${deck.id}`);
   }
 };

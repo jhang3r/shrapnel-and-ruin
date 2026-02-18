@@ -46,10 +46,14 @@ export const actions: Actions = {
   },
 
   validate: async ({ locals, params }) => {
+    const { user } = await locals.safeGetSession();
+    if (!user) redirect(303, '/auth');
+
     const { data: deckCards } = await locals.supabase
       .from('deck_cards')
-      .select('card_id, quantity, card_definitions(rarity, point_cost)')
-      .eq('deck_id', params.id);
+      .select('card_id, quantity, card_definitions(rarity, point_cost), decks!inner(user_id)')
+      .eq('deck_id', params.id)
+      .eq('decks.user_id', user.id);
 
     const entries = (deckCards ?? []).map(dc => ({
       id: dc.card_id,
