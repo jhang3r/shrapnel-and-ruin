@@ -76,34 +76,39 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ error: 'No cards available' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
   }
 
-  // Issue 4: Add pulled cards to user_collections; log errors per card but allow partial success.
+  // Add pulled cards to user_collections; refund scrap and return 500 if any write fails.
+  const grantedCards: string[] = [];
   for (const cardId of pulled) {
-    const { data: existing } = await supabase
-      .from('user_collections')
-      .select('quantity')
-      .eq('user_id', user.id)
-      .eq('card_id', cardId)
-      .maybeSingle();
+    const { data: existing } = await supabase.from('user_collections')
+      .select('quantity').eq('user_id', user.id).eq('card_id', cardId).maybeSingle();
+
+    let writeErr;
     if (existing) {
-      const { error: collUpdateErr } = await supabase
-        .from('user_collections')
+      const { error } = await supabase.from('user_collections')
         .update({ quantity: existing.quantity + 1 })
-        .eq('user_id', user.id)
-        .eq('card_id', cardId);
-      if (collUpdateErr) {
-        console.error(`Failed to update collection for card ${cardId}:`, collUpdateErr.message);
-      }
+        .eq('user_id', user.id).eq('card_id', cardId);
+      writeErr = error;
     } else {
-      const { error: collInsertErr } = await supabase
-        .from('user_collections')
+      const { error } = await supabase.from('user_collections')
         .insert({ user_id: user.id, card_id: cardId, quantity: 1 });
-      if (collInsertErr) {
-        console.error(`Failed to insert collection for card ${cardId}:`, collInsertErr.message);
-      }
+      writeErr = error;
     }
+
+    if (writeErr) {
+      // Refund scrap for cards not yet granted
+      const refundAmount = PACK_COST; // full refund - simpler than partial
+      const { data: currentProf } = await supabase.from('profiles').select('scrap').eq('id', user.id).single();
+      if (currentProf) {
+        await supabase.from('profiles').update({ scrap: currentProf.scrap + refundAmount }).eq('id', user.id);
+      }
+      return new Response(JSON.stringify({ error: 'Failed to add cards to collection' }), {
+        status: 500, headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    grantedCards.push(cardId);
   }
 
-  return new Response(JSON.stringify({ cards: pulled }), {
+  return new Response(JSON.stringify({ cards: grantedCards }), {
     headers: { 'Content-Type': 'application/json' },
   });
 });
