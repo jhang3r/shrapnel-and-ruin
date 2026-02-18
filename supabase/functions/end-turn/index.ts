@@ -1,6 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { advanceTurn, applyUpkeep } from '../_shared/game-engine.ts';
 import type { GameState } from '../_shared/types.ts';
+import { grantMatchRewards } from '../_shared/rewards.ts';
 
 Deno.serve(async (req) => {
   const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
@@ -35,6 +36,23 @@ Deno.serve(async (req) => {
   if (living.length === 1) {
     await supabase.from('game_rooms').update({ status: 'completed' }).eq('id', room_id);
     await supabase.from('match_history').insert({ room_id, winner_id: living[0] });
+
+    const { data: match } = await supabase
+      .from('match_history')
+      .select('id')
+      .eq('room_id', room_id)
+      .single();
+
+    if (match) {
+      const isVsAi = state.turn_order.some((uid: string) => uid.startsWith('ai-'));
+      const playerResults = state.turn_order.map((uid: string) => ({
+        userId: uid,
+        placement: uid === living[0] ? 1 : 2,
+        isAi: uid.startsWith('ai-')
+      }));
+      await grantMatchRewards(supabase, match.id, playerResults, isVsAi);
+    }
+
     state.log.push(`Game over! Winner: ${living[0]}`);
     await supabase.from('game_state').update({ state, phase: 'end', updated_at: new Date().toISOString() }).eq('room_id', room_id);
     return new Response(JSON.stringify({ game_over: true, winner: living[0] }), { headers: { 'Content-Type': 'application/json' } });
