@@ -22,9 +22,15 @@ export const actions: Actions = {
     const { user } = await locals.safeGetSession();
     if (!user) redirect(303, '/auth');
 
+    // Verify ownership
+    const { data: deck } = await locals.supabase
+      .from('decks').select('id').eq('id', params.id).eq('user_id', user.id).single();
+    if (!deck) return fail(403, { message: 'Forbidden' });
+
     const form = await request.formData();
     const cardId = form.get('card_id') as string;
     const qty = parseInt(form.get('quantity') as string, 10);
+    if (isNaN(qty)) return fail(400, { message: 'Invalid quantity' });
 
     if (qty <= 0) {
       await locals.supabase.from('deck_cards').delete()
@@ -49,11 +55,15 @@ export const actions: Actions = {
     const { user } = await locals.safeGetSession();
     if (!user) redirect(303, '/auth');
 
+    // Verify ownership first
+    const { data: deck } = await locals.supabase
+      .from('decks').select('id').eq('id', params.id).eq('user_id', user.id).single();
+    if (!deck) return fail(403, { message: 'Forbidden' });
+
     const { data: deckCards } = await locals.supabase
       .from('deck_cards')
-      .select('card_id, quantity, card_definitions(rarity, point_cost), decks!inner(user_id)')
-      .eq('deck_id', params.id)
-      .eq('decks.user_id', user.id);
+      .select('card_id, quantity, card_definitions(rarity, point_cost)')
+      .eq('deck_id', params.id);
 
     const entries = (deckCards ?? []).map(dc => ({
       id: dc.card_id,
