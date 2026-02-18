@@ -2,11 +2,7 @@ import { createServerSupabaseClient } from '$lib/supabase';
 import type { Handle } from '@sveltejs/kit';
 
 export const handle: Handle = async ({ event, resolve }) => {
-  event.locals.supabase = createServerSupabaseClient({
-    get: (name) => event.cookies.get(name),
-    set: (name, value, opts) => event.cookies.set(name, value, { path: '/', ...opts }),
-    delete: (name, opts) => event.cookies.delete(name, { path: '/', ...opts })
-  });
+  event.locals.supabase = createServerSupabaseClient(event.cookies);
 
   event.locals.safeGetSession = async () => {
     const { data: { session } } = await event.locals.supabase.auth.getSession();

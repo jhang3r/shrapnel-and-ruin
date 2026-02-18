@@ -6,12 +6,17 @@ export function createClient() {
   return createBrowserClient<Database>(PUBLIC_SUPABASE_URL, PUBLIC_SUPABASE_ANON_KEY);
 }
 
-export function createServerSupabaseClient(
-  cookies: {
-    get: (name: string) => string | undefined;
-    set: (name: string, value: string, opts: object) => void;
-    delete: (name: string, opts: object) => void;
-  }
-) {
-  return createServerClient<Database>(PUBLIC_SUPABASE_URL, PUBLIC_SUPABASE_ANON_KEY, { cookies });
+export function createServerSupabaseClient(cookies: import('@sveltejs/kit').Cookies) {
+  return createServerClient<Database>(PUBLIC_SUPABASE_URL, PUBLIC_SUPABASE_ANON_KEY, {
+    cookies: {
+      getAll() {
+        return cookies.getAll();
+      },
+      setAll(cookiesToSet) {
+        cookiesToSet.forEach(({ name, value, options }) =>
+          cookies.set(name, value, { ...options, path: '/' })
+        );
+      }
+    }
+  });
 }
