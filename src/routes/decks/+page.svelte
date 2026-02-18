@@ -1,9 +1,12 @@
 <script lang="ts">
-  import type { PageData } from './$types';
-  let { data }: { data: PageData } = $props();
+  import type { PageData, ActionData } from './$types';
+  let { data, form }: { data: PageData; form: ActionData } = $props();
 </script>
 
 <div class="p-4 max-w-lg mx-auto space-y-4">
+  {#if (form as any)?.message}
+    <p class="text-red-400 text-sm text-center">{(form as any).message}</p>
+  {/if}
   <div class="flex items-center justify-between">
     <h1 class="text-xl font-bold">My Decks</h1>
     <form method="POST" action="?/create">

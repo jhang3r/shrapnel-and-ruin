@@ -25,7 +25,10 @@ export const actions: Actions = {
       .select('id')
       .single();
 
-    if (error || !deck) return fail(500, { message: 'Failed to create deck' });
+    if (error || !deck) {
+      console.error('Deck create error:', error);
+      return fail(500, { message: error?.message ?? 'Failed to create deck' });
+    }
     redirect(303, `/decks/${deck.id}`);
   }
 };
