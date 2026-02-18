@@ -74,3 +74,64 @@ export async function initGameState(supabase: any, roomId: string, players: any[
 
   return gameState;
 }
+
+export function applyUpkeep(state: GameState): GameState {
+  const s = structuredClone(state);
+  const player = s.players[s.active_player_id];
+
+  // Draw 2 cards
+  for (let i = 0; i < 2; i++) {
+    if (player.deck.length === 0) {
+      player.deck = [...player.discard].sort(() => Math.random() - 0.5);
+      player.discard = [];
+      player.reshuffle_count += 1;
+      // 5 damage per reshuffle
+      const torso = player.parts.torso;
+      torso.hp = Math.max(0, torso.hp - 5);
+    }
+    if (player.deck.length > 0) player.hand.push(player.deck.shift()!);
+  }
+
+  // Shield regen
+  if (player.shield) {
+    player.shield.sp = Math.min(player.shield.max_sp, player.shield.sp + player.shield.regen);
+  }
+
+  // Status effect ticks
+  player.status_effects = player.status_effects
+    .map(se => ({ ...se, turns_remaining: se.turns_remaining - 1 }))
+    .filter(se => se.turns_remaining > 0);
+
+  // Burning damage
+  const burning = player.status_effects.find(se => se.effect === 'burning');
+  if (burning) {
+    const torso = player.parts.torso;
+    torso.hp = Math.max(0, torso.hp - 3);
+  }
+
+  // Restore AP
+  let apBonus = 0;
+  const stunned = player.status_effects.find(se => se.effect === 'stunned');
+  if (stunned) apBonus -= 1;
+  player.ap = Math.max(0, player.ap_per_turn + apBonus);
+
+  s.phase = 'build';
+  s.log.push(`Upkeep: ${player.user_id} draws 2 cards, AP restored to ${player.ap}`);
+  return s;
+}
+
+export function advanceTurn(state: GameState): GameState {
+  const s = structuredClone(state);
+  // Discard to 7
+  const player = s.players[s.active_player_id];
+  while (player.hand.length > 7) player.discard.push(player.hand.pop()!);
+
+  // Next living player
+  const living = s.turn_order.filter(uid => !s.players[uid].is_eliminated);
+  const idx = living.indexOf(s.active_player_id);
+  s.active_player_id = living[(idx + 1) % living.length];
+  s.turn_number += 1;
+  s.phase = 'upkeep';
+  s.log.push(`Turn ${s.turn_number} — ${s.active_player_id}'s turn`);
+  return s;
+}
