@@ -8,7 +8,7 @@ Deno.serve(async (req) => {
   );
 
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
+  if (!user) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
 
   const { room_code, deck_id } = await req.json();
 
@@ -18,8 +18,8 @@ Deno.serve(async (req) => {
     .eq('room_code', room_code.toUpperCase())
     .single();
 
-  if (!room) return new Response(JSON.stringify({ error: 'Room not found' }), { status: 404 });
-  if (room.status !== 'pending') return new Response(JSON.stringify({ error: 'Game already started' }), { status: 409 });
+  if (!room) return new Response(JSON.stringify({ error: 'Room not found' }), { status: 404, headers: { 'Content-Type': 'application/json' } });
+  if (room.status !== 'pending') return new Response(JSON.stringify({ error: 'Game already started' }), { status: 409, headers: { 'Content-Type': 'application/json' } });
 
   const { count } = await supabase
     .from('game_players')
@@ -27,7 +27,12 @@ Deno.serve(async (req) => {
     .eq('room_id', room.id);
 
   if ((count ?? 0) >= room.max_players) {
-    return new Response(JSON.stringify({ error: 'Room is full' }), { status: 409 });
+    return new Response(JSON.stringify({ error: 'Room is full' }), { status: 409, headers: { 'Content-Type': 'application/json' } });
+  }
+
+  if (deck_id) {
+    const { data: deck } = await supabase.from('decks').select('id').eq('id', deck_id).eq('user_id', user.id).maybeSingle();
+    if (!deck) return new Response(JSON.stringify({ error: 'Invalid deck' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
   }
 
   // Note: race condition on seat_order is inherent to the non-transactional design.
@@ -38,7 +43,7 @@ Deno.serve(async (req) => {
       { onConflict: 'room_id,user_id' }
     );
   } catch {
-    return new Response(JSON.stringify({ error: 'Failed to join room' }), { status: 500 });
+    return new Response(JSON.stringify({ error: 'Failed to join room' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
   }
 
   return new Response(JSON.stringify({ room_id: room.id }), { headers: { 'Content-Type': 'application/json' } });
