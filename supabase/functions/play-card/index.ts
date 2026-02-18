@@ -25,6 +25,11 @@ Deno.serve(async (req) => {
   const { data: cardDef } = await supabase.from('card_definitions').select('*').eq('id', card_id).single();
   if (!cardDef) return new Response(JSON.stringify({ error: 'Unknown card' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
 
+  // Validate that install_part is provided for component/armor cards
+  if ((cardDef.type === 'component' || cardDef.type === 'armor') && !install_part) {
+    return new Response(JSON.stringify({ error: 'install_part required for component and armor cards' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+  }
+
   // Remove from hand
   player.hand.splice(cardIdx, 1);
 

@@ -97,14 +97,14 @@ export function applyUpkeep(state: GameState): GameState {
     player.shield.sp = Math.min(player.shield.max_sp, player.shield.sp + player.shield.regen);
   }
 
-  // Status effect ticks
+  // Tick status effects down — capture burning BEFORE filtering
+  const burnBeforeTick = player.status_effects.find(se => se.effect === 'burning' && se.turns_remaining > 0);
   player.status_effects = player.status_effects
     .map(se => ({ ...se, turns_remaining: se.turns_remaining - 1 }))
     .filter(se => se.turns_remaining > 0);
 
-  // Burning damage
-  const burning = player.status_effects.find(se => se.effect === 'burning');
-  if (burning) {
+  // Burning damage — use pre-tick capture to include final tick
+  if (burnBeforeTick) {
     const torso = player.parts.torso;
     torso.hp = Math.max(0, torso.hp - 3);
   }
