@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest';
 
 describe('generateGuestUsername', () => {
-  it('returns a string matching Pilot-XXXX format', async () => {
+  it('always matches Pilot-XXXX format across many calls', async () => {
     const { generateGuestUsername } = await import('./auth');
-    const name = generateGuestUsername();
-    expect(name).toMatch(/^Pilot-[A-Z0-9]{4}$/);
+    for (let i = 0; i < 1000; i++) {
+      expect(generateGuestUsername()).toMatch(/^Pilot-[A-Z0-9]{4}$/);
+    }
   });
 });
