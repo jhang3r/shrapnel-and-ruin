@@ -16,10 +16,12 @@ Deno.serve(async (req) => {
     });
   }
 
-  const { data: gs } = await supabase.from('game_state').select('*').eq('room_id', room_id).single();
-  if (!gs) {
-    return new Response(JSON.stringify({ error: 'Game not found' }), {
-      status: 404, headers: { 'Content-Type': 'application/json' }
+  const { data: gs, error: gsErr } = await supabase.from('game_state').select('*').eq('room_id', room_id).single();
+  if (gsErr || !gs) {
+    const status = gsErr && gsErr.code !== 'PGRST116' ? 500 : 404;
+    const message = gsErr && gsErr.code !== 'PGRST116' ? 'Failed to load game state' : 'Game not found';
+    return new Response(JSON.stringify({ error: message }), {
+      status, headers: { 'Content-Type': 'application/json' }
     });
   }
 
@@ -30,7 +32,12 @@ Deno.serve(async (req) => {
     });
   }
 
-  const { data: cardDefs } = await supabase.from('card_definitions').select('*');
+  const { data: cardDefs, error: cardErr } = await supabase.from('card_definitions').select('*');
+  if (cardErr) {
+    return new Response(JSON.stringify({ error: 'Failed to load card definitions' }), {
+      status: 500, headers: { 'Content-Type': 'application/json' }
+    });
+  }
   const cardDefMap = Object.fromEntries((cardDefs ?? []).map((c: any) => [c.id, c]));
 
   // Run AI actions until no more available or turn ends
@@ -73,6 +80,9 @@ Deno.serve(async (req) => {
         attacker.ap -= 1;
       }
     }
+
+    const currentAp = state.players[ai_user_id]?.ap ?? 0;
+    if (currentAp <= 0) break;
 
     iterations++;
   }
