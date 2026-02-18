@@ -32,7 +32,7 @@ create table public.user_collections (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
   card_id text not null references public.card_definitions(id),
-  quantity integer not null default 1 check (quantity >= 0),
+  quantity integer not null default 1 check (quantity >= 1),
   is_starter boolean not null default false,
   unique(user_id, card_id)
 );
@@ -68,7 +68,7 @@ create table public.game_rooms (
   room_code char(6) unique not null,
   status text not null default 'pending' check (status in ('pending','in_progress','completed')),
   max_players integer not null default 4 check (max_players between 2 and 4),
-  host_id uuid references public.profiles(id),
+  host_id uuid references public.profiles(id) on delete set null,
   created_at timestamptz not null default now()
 );
 alter table public.game_rooms enable row level security;
@@ -85,7 +85,14 @@ create table public.game_players (
   unique(room_id, user_id)
 );
 alter table public.game_players enable row level security;
-create policy "Players in room can read game_players" on public.game_players for select using (true);
+create policy "Players in room can read game_players" on public.game_players for select
+  using (
+    exists (
+      select 1 from public.game_players gp
+      where gp.room_id = game_players.room_id
+        and gp.user_id = auth.uid()
+    )
+  );
 
 -- Game state
 create table public.game_state (
@@ -98,7 +105,14 @@ create table public.game_state (
   updated_at timestamptz not null default now()
 );
 alter table public.game_state enable row level security;
-create policy "Anyone can read game state" on public.game_state for select using (true);
+create policy "Players in room can read game state" on public.game_state for select
+  using (
+    exists (
+      select 1 from public.game_players gp
+      where gp.room_id = game_state.room_id
+        and gp.user_id = auth.uid()
+    )
+  );
 
 -- Match history
 create table public.match_history (
@@ -108,6 +122,9 @@ create table public.match_history (
   duration_seconds integer,
   completed_at timestamptz not null default now()
 );
+alter table public.match_history enable row level security;
+create policy "Authenticated users can read match history" on public.match_history for select
+  using (auth.role() = 'authenticated');
 
 -- Match players (per-player results)
 create table public.match_players (
@@ -117,6 +134,9 @@ create table public.match_players (
   placement integer not null,
   salvaged_card_ids text[] not null default '{}'
 );
+alter table public.match_players enable row level security;
+create policy "Users can read own match results" on public.match_players for select
+  using (auth.uid() = user_id);
 
 -- P2P Trades
 create table public.trades (
@@ -128,6 +148,13 @@ create table public.trades (
   status text not null default 'pending' check (status in ('pending','accepted','rejected','cancelled')),
   created_at timestamptz not null default now()
 );
+alter table public.trades enable row level security;
+create policy "Parties can read own trades" on public.trades for select
+  using (auth.uid() = initiator_id or auth.uid() = recipient_id);
+create policy "Initiator can create trade" on public.trades for insert
+  with check (auth.uid() = initiator_id);
+create policy "Parties can update trade status" on public.trades for update
+  using (auth.uid() = initiator_id or auth.uid() = recipient_id);
 
 -- Packs
 create table public.packs (
@@ -135,3 +162,13 @@ create table public.packs (
   name text not null,
   rarity_weights jsonb not null
 );
+
+-- Performance indexes
+create index on public.user_collections (user_id);
+create index on public.decks (user_id);
+create index on public.deck_cards (deck_id);
+create index on public.game_players (room_id);
+create index on public.game_players (user_id);
+create index on public.trades (initiator_id);
+create index on public.trades (recipient_id);
+create index on public.match_players (user_id);
