@@ -29,6 +29,15 @@ Deno.serve(async (req) => {
     });
   }
 
+  // Verify recipient exists
+  const { data: recipientProfile } = await supabase
+    .from('profiles').select('id').eq('id', recipient_id).maybeSingle();
+  if (!recipientProfile) {
+    return new Response(JSON.stringify({ error: 'Recipient not found' }), {
+      status: 404, headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
   // Verify initiator owns all offered cards (and none are starter cards)
   for (const cardId of offered_card_ids) {
     const { data } = await supabase.from('user_collections')

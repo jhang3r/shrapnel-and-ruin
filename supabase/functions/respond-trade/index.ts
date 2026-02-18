@@ -37,7 +37,7 @@ Deno.serve(async (req) => {
     });
   }
 
-  // Verify recipient owns all requested cards (and none are starter cards)
+  // Verify recipient owns all requested cards and none are starters (pre-flight check for user feedback)
   for (const cardId of trade.requested_card_ids) {
     const { data } = await supabase.from('user_collections')
       .select('quantity, card_definitions(is_starter)')
@@ -54,49 +54,24 @@ Deno.serve(async (req) => {
     }
   }
 
-  // Perform card transfers
-  const transfers = [
-    ...trade.offered_card_ids.map((id: string) => ({ from: trade.initiator_id, to: user.id, card_id: id })),
-    ...trade.requested_card_ids.map((id: string) => ({ from: user.id, to: trade.initiator_id, card_id: id }))
-  ];
+  // Execute the trade atomically via database transaction
+  const { data: result, error: execErr } = await supabase.rpc('execute_trade', {
+    p_trade_id: trade_id,
+    p_recipient_id: user.id
+  });
 
-  for (const t of transfers) {
-    // Decrement from sender using the Postgres RPC function
-    const { error: decrErr } = await supabase.rpc('decrement_card', {
-      p_user_id: t.from,
-      p_card_id: t.card_id
+  if (execErr) {
+    return new Response(JSON.stringify({ error: 'Trade execution failed' }), {
+      status: 500, headers: { 'Content-Type': 'application/json' }
     });
-    if (decrErr) {
-      return new Response(JSON.stringify({ error: `Failed to transfer ${t.card_id}` }), {
-        status: 500, headers: { 'Content-Type': 'application/json' }
-      });
-    }
-
-    // Add to receiver (increment correctly)
-    const { data: existing } = await supabase.from('user_collections')
-      .select('quantity').eq('user_id', t.to).eq('card_id', t.card_id).maybeSingle();
-
-    if (existing) {
-      const { error: updErr } = await supabase.from('user_collections')
-        .update({ quantity: existing.quantity + 1 })
-        .eq('user_id', t.to).eq('card_id', t.card_id);
-      if (updErr) {
-        return new Response(JSON.stringify({ error: `Failed to grant ${t.card_id}` }), {
-          status: 500, headers: { 'Content-Type': 'application/json' }
-        });
-      }
-    } else {
-      const { error: insErr } = await supabase.from('user_collections')
-        .insert({ user_id: t.to, card_id: t.card_id, quantity: 1 });
-      if (insErr) {
-        return new Response(JSON.stringify({ error: `Failed to grant ${t.card_id}` }), {
-          status: 500, headers: { 'Content-Type': 'application/json' }
-        });
-      }
-    }
   }
 
-  await supabase.from('trades').update({ status: 'accepted' }).eq('id', trade_id);
+  if (result?.error) {
+    return new Response(JSON.stringify({ error: result.error }), {
+      status: 400, headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
   return new Response(JSON.stringify({ ok: true }), {
     headers: { 'Content-Type': 'application/json' }
   });
