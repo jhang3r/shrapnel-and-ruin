@@ -37,15 +37,9 @@ Deno.serve(async (req) => {
     await supabase.from('game_rooms').update({ status: 'completed' }).eq('id', room_id);
     const { error: insertMatchErr } = await supabase.from('match_history').insert({ room_id, winner_id: living[0] });
 
-    const { data: match, error: matchErr } = await supabase
-      .from('match_history')
-      .select('id')
-      .eq('room_id', room_id)
-      .single();
-
-    if (matchErr || insertMatchErr) {
-      console.error('Failed to fetch match for rewards:', (matchErr || insertMatchErr)?.message);
-    } else if (match) {
+    if (insertMatchErr) {
+      console.error('Failed to record match history:', insertMatchErr.message);
+    } else {
       const isVsAi = state.turn_order.some((uid: string) => uid.startsWith('ai-'));
       const playerResults = state.turn_order.map((uid: string) => ({
         userId: uid,
