@@ -2,6 +2,7 @@
   import { PUBLIC_SUPABASE_URL } from '$env/static/public';
   import { createClient } from '$lib/supabase';
   import { gameState, myUserId } from '$lib/game-store';
+  import GameScreen from '$lib/components/GameScreen.svelte';
   import type { GameState } from '$lib/types';
   import { onMount, onDestroy } from 'svelte';
   import type { PageData } from './$types';
@@ -61,7 +62,7 @@
 
 {#if $gameState}
   <!-- Game in progress — render GameScreen -->
-  <p class="p-4 text-center text-slate-400">Game in progress — game screen goes here (Task 11)</p>
+  <GameScreen roomId={data.room.id} cardDefs={data.cardDefs} />
 {:else}
   <!-- Waiting room -->
   <div class="p-4 max-w-sm mx-auto space-y-4">
