@@ -37,12 +37,11 @@ Deno.serve(async (req) => {
 
   // Note: race condition on seat_order is inherent to the non-transactional design.
   // A unique constraint violation at the DB level is caught here.
-  try {
-    await supabase.from('game_players').upsert(
-      { room_id: room.id, user_id: user.id, deck_id, seat_order: count ?? 0 },
-      { onConflict: 'room_id,user_id' }
-    );
-  } catch {
+  const { error: upsertError } = await supabase.from('game_players').upsert(
+    { room_id: room.id, user_id: user.id, deck_id, seat_order: count ?? 0 },
+    { onConflict: 'room_id,user_id' }
+  );
+  if (upsertError) {
     return new Response(JSON.stringify({ error: 'Failed to join room' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
   }
 

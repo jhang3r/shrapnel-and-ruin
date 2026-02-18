@@ -36,8 +36,8 @@ Deno.serve(async (req) => {
     // (room status check done above — if already in_progress we returned early)
     try {
       const state = await initGameState(supabase, room_id, players!);
-      await supabase.from('game_rooms').update({ status: 'in_progress' }).eq('id', room_id).eq('status', 'pending');
       await supabase.from('game_state').insert({ room_id, state, phase: 'upkeep', turn_number: 1, active_player_id: players![0].user_id });
+      await supabase.from('game_rooms').update({ status: 'in_progress' }).eq('id', room_id).eq('status', 'pending');
     } catch (err) {
       console.error('Game start failed:', err);
       return new Response(JSON.stringify({ error: 'Failed to start game' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
