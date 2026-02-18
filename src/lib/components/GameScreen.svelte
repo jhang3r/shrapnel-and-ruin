@@ -29,12 +29,22 @@
 
   async function callEdge(fn: string, body: object) {
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session) throw new Error('Not authenticated');
-    const res = await fetch(`${PUBLIC_SUPABASE_URL}/functions/v1/${fn}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-      body: JSON.stringify({ room_id: roomId, ...body })
-    });
+    if (!session) { toast('Not authenticated'); return null; }
+    let res: Response;
+    try {
+      res = await fetch(`${PUBLIC_SUPABASE_URL}/functions/v1/${fn}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ room_id: roomId, ...body })
+      });
+    } catch {
+      toast('Network error');
+      return null;
+    }
+    if (!res.ok) {
+      toast(`Server error (${res.status})`);
+      return null;
+    }
     const data = await res.json();
     if (data.error) toast(data.error);
     return data;
@@ -49,6 +59,7 @@
   }
 
   let pendingWeapon = $state<string | null>(null);
+  let attacking = $state(false);
 
   function fireWeapon(weaponCardId: string) {
     pendingWeapon = weaponCardId;
@@ -57,10 +68,16 @@
   }
 
   async function selectTarget(targetUserId: string, targetPart: string) {
-    if (!pendingWeapon) return;
-    await callEdge('attack', { weapon_card_id: pendingWeapon, target_user_id: targetUserId, target_part: targetPart });
-    pendingWeapon = null;
+    if (!pendingWeapon || attacking) return;
+    attacking = true;
+    const weapon = pendingWeapon;
+    pendingWeapon = null;  // clear immediately to prevent re-entry
     tab = 'hand';
+    try {
+      await callEdge('attack', { weapon_card_id: weapon, target_user_id: targetUserId, target_part: targetPart });
+    } finally {
+      attacking = false;
+    }
   }
 
   async function endTurn() {
@@ -118,6 +135,12 @@
   </div>
 
   <!-- Tab content -->
+  {#if pendingWeapon}
+    <div class="px-3 py-2 bg-slate-800 border-b border-slate-700 flex items-center justify-between text-sm">
+      <span class="text-cyan-400">Targeting mode — select enemy part</span>
+      <button onclick={() => { pendingWeapon = null; tab = 'hand'; }} class="text-slate-400 text-xs underline">Cancel</button>
+    </div>
+  {/if}
   <div class="flex-1 overflow-y-auto">
     {#if tab === 'hand'}
       <HandTab player={me} phase={state?.phase ?? 'build'} {cardDefs} onPlayCard={playCard} onDiscardCard={discardCard} onFire={fireWeapon} />

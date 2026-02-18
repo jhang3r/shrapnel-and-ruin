@@ -10,6 +10,12 @@
   const enemy = $derived(enemies[currentEnemy]);
   const parts = ['head','torso','left_arm','right_arm','left_leg','right_leg'];
   const canTarget = $derived(phase === 'combat' && !enemy?.state.is_eliminated);
+
+  $effect(() => {
+    if (currentEnemy >= enemies.length && enemies.length > 0) {
+      currentEnemy = 0;
+    }
+  });
 </script>
 
 <div class="p-4 space-y-3">

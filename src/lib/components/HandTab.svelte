@@ -11,7 +11,7 @@
 
   const weapons = $derived(
     phase === 'combat'
-      ? Object.values(player.parts as Record<string, any>)
+      ? Object.values((player?.parts ?? {}) as Record<string, any>)
           .flatMap((p: any) => p.installed_components)
           .filter((c: any) => c.is_active && cardDefs[c.card_id]?.stats?.slot_type === 'weapon')
       : []
@@ -35,9 +35,9 @@
       {/if}
     </div>
   {:else}
-    <div class="text-xs text-slate-400 uppercase tracking-wider">Hand ({player.hand.length})</div>
+    <div class="text-xs text-slate-400 uppercase tracking-wider">Hand ({player?.hand?.length ?? 0})</div>
     <div class="flex gap-2 overflow-x-auto pb-2">
-      {#each player.hand as cardId}
+      {#each (player?.hand ?? []) as cardId}
         <CardView
           {cardId} cardDef={cardDefs[cardId]}
           selected={selected === cardId}
