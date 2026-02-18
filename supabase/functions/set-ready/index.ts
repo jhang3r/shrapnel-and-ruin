@@ -40,7 +40,7 @@ Deno.serve(async (req) => {
       .eq('status', 'pending')
       .select('id', { count: 'exact', head: true });
 
-    if (count === 0) {
+    if (!count) {
       // Another invocation already started the game — return success without re-initializing
       return new Response(JSON.stringify({ ok: true, already_started: true }), {
         status: 200,
