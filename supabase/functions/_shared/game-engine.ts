@@ -1,4 +1,66 @@
-// Stub — replaced in Task 8 with full game engine implementation
-export async function initGameState(supabase: any, room_id: string, players: any[]): Promise<any> {
-  return {};
+import type { GameState, PlayerState, PartName, PartState } from './types.ts';
+
+const PART_NAMES: PartName[] = ['head','torso','left_arm','right_arm','left_leg','right_leg'];
+const INITIAL_HAND_SIZE = 5;
+
+export function buildPlayerState(userId: string, frameCard: any, deckCardIds: string[]): PlayerState {
+  const shuffled = [...deckCardIds].sort(() => Math.random() - 0.5);
+  const hand = shuffled.splice(0, INITIAL_HAND_SIZE);
+
+  const parts = {} as Record<PartName, PartState>;
+  for (const part of PART_NAMES) {
+    const hp = frameCard.stats.base_hp[part] ?? 20;
+    parts[part] = { name: part, hp, max_hp: hp, armor: 0, installed_components: [], status_effects: [] };
+  }
+
+  return {
+    user_id: userId,
+    frame_card_id: frameCard.id,
+    parts,
+    shield: null,
+    ap: frameCard.stats.base_ap,
+    ap_per_turn: frameCard.stats.base_ap,
+    hand,
+    deck: shuffled,
+    discard: [],
+    reshuffle_count: 0,
+    status_effects: [],
+    is_eliminated: false,
+    targeting_system: false
+  };
+}
+
+export async function initGameState(supabase: any, roomId: string, players: any[]): Promise<GameState> {
+  const gameState: GameState = {
+    players: {},
+    turn_order: [],
+    phase: 'upkeep',
+    turn_number: 1,
+    active_player_id: players[0].user_id,
+    log: ['Game started!']
+  };
+
+  for (const player of players) {
+    // Fetch their deck's card IDs
+    const { data: deckCards } = await supabase
+      .from('deck_cards')
+      .select('card_id, quantity, card_definitions(stats, type)')
+      .eq('deck_id', player.deck_id);
+
+    // Expand deck (quantity copies each)
+    const deckCardIds: string[] = [];
+    let frameCard: any = null;
+    for (const dc of deckCards ?? []) {
+      if ((dc.card_definitions as any).type === 'frame' && !frameCard) {
+        frameCard = { id: dc.card_id, stats: (dc.card_definitions as any).stats };
+      }
+      for (let i = 0; i < dc.quantity; i++) deckCardIds.push(dc.card_id);
+    }
+
+    if (!frameCard) continue; // skip invalid decks
+    gameState.players[player.user_id] = buildPlayerState(player.user_id, frameCard, deckCardIds);
+    gameState.turn_order.push(player.user_id);
+  }
+
+  return gameState;
 }
