@@ -26,7 +26,8 @@ Deno.serve(async (req) => {
   const { data: pack } = await supabase.from('packs').select('*').eq('id', pack_id).single();
   if (!pack) return new Response(JSON.stringify({ error: 'Pack not found' }), { status: 404, headers: { 'Content-Type': 'application/json' } });
 
-  // Fetch profile for scrap balance
+  // Issue 3: Optimistic concurrency for scrap deduction to prevent race conditions.
+  // Read current scrap balance.
   const { data: prof } = await supabase
     .from('profiles')
     .select('scrap')
@@ -35,6 +36,22 @@ Deno.serve(async (req) => {
 
   if (!prof || prof.scrap < PACK_COST) {
     return new Response(JSON.stringify({ error: 'Not enough scrap to open a pack' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+  }
+
+  // Conditional update: only succeeds if scrap hasn't changed since we read it.
+  // If a concurrent request already deducted scrap, this update matches 0 rows and we return 409.
+  const { data: updated, error: scrapErr } = await supabase
+    .from('profiles')
+    .update({ scrap: prof.scrap - PACK_COST })
+    .eq('id', user.id)
+    .eq('scrap', prof.scrap)  // optimistic concurrency check
+    .select('id');
+
+  if (scrapErr) {
+    return new Response(JSON.stringify({ error: scrapErr.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
+  if (!updated || updated.length === 0) {
+    return new Response(JSON.stringify({ error: 'Concurrent update conflict, please retry' }), { status: 409, headers: { 'Content-Type': 'application/json' } });
   }
 
   // Pre-fetch all cards grouped by rarity (Problem D fix — batch instead of N+1)
@@ -59,14 +76,7 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ error: 'No cards available' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
   }
 
-  // Deduct scrap cost
-  const { error: scrapErr } = await supabase
-    .from('profiles')
-    .update({ scrap: prof.scrap - PACK_COST })
-    .eq('id', user.id);
-  if (scrapErr) return new Response(JSON.stringify({ error: scrapErr.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
-
-  // Add pulled cards to user_collections using fetch-then-update (Problem B fix)
+  // Issue 4: Add pulled cards to user_collections; log errors per card but allow partial success.
   for (const cardId of pulled) {
     const { data: existing } = await supabase
       .from('user_collections')
@@ -75,15 +85,21 @@ Deno.serve(async (req) => {
       .eq('card_id', cardId)
       .maybeSingle();
     if (existing) {
-      await supabase
+      const { error: collUpdateErr } = await supabase
         .from('user_collections')
         .update({ quantity: existing.quantity + 1 })
         .eq('user_id', user.id)
         .eq('card_id', cardId);
+      if (collUpdateErr) {
+        console.error(`Failed to update collection for card ${cardId}:`, collUpdateErr.message);
+      }
     } else {
-      await supabase
+      const { error: collInsertErr } = await supabase
         .from('user_collections')
         .insert({ user_id: user.id, card_id: cardId, quantity: 1 });
+      if (collInsertErr) {
+        console.error(`Failed to insert collection for card ${cardId}:`, collInsertErr.message);
+      }
     }
   }
 

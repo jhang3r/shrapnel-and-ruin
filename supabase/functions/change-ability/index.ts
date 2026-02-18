@@ -26,8 +26,10 @@ Deno.serve(async (req) => {
 
   if (ability === 'Shield Boost') {
     if (player.ap < 1) return new Response(JSON.stringify({ error: 'No AP' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+    // Issue 5: Prevent Shield Boost from silently no-oping when no shield is equipped
+    if (!player.shield) return new Response(JSON.stringify({ error: 'No shield equipped' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     player.ap -= 1;
-    if (player.shield) player.shield.sp = Math.min(player.shield.max_sp, player.shield.sp + player.shield.regen);
+    player.shield.sp = Math.min(player.shield.max_sp, player.shield.sp + player.shield.regen);
     state.log.push(`${user.id} used Shield Boost`);
   } else if (ability === 'Weapon Overclock') {
     if (player.ap < 1) return new Response(JSON.stringify({ error: 'No AP' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
@@ -38,6 +40,8 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ error: 'Unknown ability' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
   }
 
-  await supabase.from('game_state').update({ state, updated_at: new Date().toISOString() }).eq('room_id', room_id);
+  // Issue 4: Check DB write error and return 500 on failure
+  const { error: gsUpdateErr } = await supabase.from('game_state').update({ state, updated_at: new Date().toISOString() }).eq('room_id', room_id);
+  if (gsUpdateErr) return new Response(JSON.stringify({ error: 'Failed to save game state' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
   return new Response(JSON.stringify({ ok: true }), { headers: { 'Content-Type': 'application/json' } });
 });

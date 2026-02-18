@@ -34,10 +34,27 @@ Deno.serve(async (req) => {
     });
   }
 
+  // Issue 8: Turn-order check — salvage may only happen on your turn
+  if (state.active_player_id !== user.id) {
+    return new Response(JSON.stringify({ error: 'Not your turn' }), {
+      status: 403, headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
   // Target must be eliminated
   const target = state.players[target_user_id];
   if (!target?.is_eliminated) {
     return new Response(JSON.stringify({ error: 'Target not eliminated' }), {
+      status: 400, headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  // Issue 1: Validate card_id exists in target's deck, hand, or discard pile
+  const inDeck = target.deck.includes(card_id);
+  const inHand = target.hand.includes(card_id);
+  const inDiscard = target.discard.includes(card_id);
+  if (!inDeck && !inHand && !inDiscard) {
+    return new Response(JSON.stringify({ error: 'Card not in target deck' }), {
       status: 400, headers: { 'Content-Type': 'application/json' }
     });
   }
@@ -78,19 +95,40 @@ Deno.serve(async (req) => {
     .maybeSingle();
 
   if (existing) {
-    await supabase.from('user_collections')
+    const { error: collUpdateErr } = await supabase.from('user_collections')
       .update({ quantity: existing.quantity + 1 })
       .eq('user_id', user.id)
       .eq('card_id', card_id);
+    if (collUpdateErr) {
+      return new Response(JSON.stringify({ error: 'Failed to update collection' }), {
+        status: 500, headers: { 'Content-Type': 'application/json' }
+      });
+    }
   } else {
-    await supabase.from('user_collections').insert({ user_id: user.id, card_id, quantity: 1 });
+    const { error: collInsertErr } = await supabase.from('user_collections')
+      .insert({ user_id: user.id, card_id, quantity: 1 });
+    if (collInsertErr) {
+      return new Response(JSON.stringify({ error: 'Failed to update collection' }), {
+        status: 500, headers: { 'Content-Type': 'application/json' }
+      });
+    }
   }
+
+  // Issue 2: Remove card from target's deck/hand/discard to make the operation idempotent
+  if (inDeck) target.deck.splice(target.deck.indexOf(card_id), 1);
+  if (inHand) target.hand.splice(target.hand.indexOf(card_id), 1);
+  if (inDiscard) target.discard.splice(target.discard.indexOf(card_id), 1);
 
   // Log to game state
   state.log.push(`${user.id} salvaged ${card_id} from ${target_user_id}`);
-  await supabase.from('game_state')
+  const { error: gsUpdateErr } = await supabase.from('game_state')
     .update({ state, updated_at: new Date().toISOString() })
     .eq('room_id', room_id);
+  if (gsUpdateErr) {
+    return new Response(JSON.stringify({ error: 'Failed to save game state' }), {
+      status: 500, headers: { 'Content-Type': 'application/json' }
+    });
+  }
 
   return new Response(JSON.stringify({ ok: true }), {
     headers: { 'Content-Type': 'application/json' }

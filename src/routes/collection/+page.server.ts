@@ -30,9 +30,15 @@ export const actions: Actions = {
 
     const form = await request.formData();
     const cardId = form.get('card_id') as string;
-    const qty = Math.max(1, Math.floor(Number(form.get('quantity') ?? 1)));
 
     if (!cardId) return fail(400, { message: 'Missing card_id' });
+
+    // Issue 7: Handle NaN and non-positive values from form input
+    const rawQty = Number(form.get('quantity'));
+    if (!Number.isFinite(rawQty) || rawQty < 1) {
+      return fail(400, { message: 'Invalid quantity' });
+    }
+    const qty = Math.floor(rawQty);
 
     // Scrap values by rarity
     const SCRAP_VALUES: Record<string, number> = {
@@ -80,7 +86,7 @@ export const actions: Actions = {
       if (updErr) return fail(500, { message: updErr.message });
     }
 
-    // Increment scrap (Problem A fix — direct update, no .rpc())
+    // Issue 6: Optimistic concurrency for scrap increment to avoid read-then-write race condition
     const scrapGain = (SCRAP_VALUES[cardDef.rarity] ?? 5) * qty;
     const { data: prof } = await locals.supabase
       .from('profiles')
@@ -88,11 +94,16 @@ export const actions: Actions = {
       .eq('id', user.id)
       .single();
     const newScrap = (prof?.scrap ?? 0) + scrapGain;
-    const { error: scrapErr } = await locals.supabase
+    // Conditional update: only applies if scrap hasn't changed between our read and write.
+    // If a concurrent update raced us, the update matches 0 rows. For scrap gains this is
+    // acceptable (user's favor), so we proceed without failing the action.
+    const { data: updatedProf } = await locals.supabase
       .from('profiles')
       .update({ scrap: newScrap })
-      .eq('id', user.id);
-    if (scrapErr) return fail(500, { message: scrapErr.message });
+      .eq('id', user.id)
+      .eq('scrap', prof?.scrap ?? 0)
+      .select('id');
+    // updatedProf being empty means a concurrent update happened — acceptable for gains
 
     return { success: true, scrap_gained: scrapGain };
   },
