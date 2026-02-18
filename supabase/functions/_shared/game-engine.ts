@@ -36,16 +36,20 @@ export async function initGameState(supabase: any, roomId: string, players: any[
     turn_order: [],
     phase: 'upkeep',
     turn_number: 1,
-    active_player_id: players[0].user_id,
+    active_player_id: '',  // set after player loop
     log: ['Game started!']
   };
 
   for (const player of players) {
     // Fetch their deck's card IDs
-    const { data: deckCards } = await supabase
+    const { data: deckCards, error: deckError } = await supabase
       .from('deck_cards')
       .select('card_id, quantity, card_definitions(stats, type)')
       .eq('deck_id', player.deck_id);
+
+    if (deckError) {
+      throw new Error(`Failed to load deck for player ${player.user_id}: ${deckError.message}`);
+    }
 
     // Expand deck (quantity copies each)
     const deckCardIds: string[] = [];
@@ -53,6 +57,7 @@ export async function initGameState(supabase: any, roomId: string, players: any[
     for (const dc of deckCards ?? []) {
       if ((dc.card_definitions as any).type === 'frame' && !frameCard) {
         frameCard = { id: dc.card_id, stats: (dc.card_definitions as any).stats };
+        continue;  // Frame card defines the mech, not a draw pile card
       }
       for (let i = 0; i < dc.quantity; i++) deckCardIds.push(dc.card_id);
     }
@@ -61,6 +66,11 @@ export async function initGameState(supabase: any, roomId: string, players: any[
     gameState.players[player.user_id] = buildPlayerState(player.user_id, frameCard, deckCardIds);
     gameState.turn_order.push(player.user_id);
   }
+
+  if (gameState.turn_order.length === 0) {
+    throw new Error('No valid players with frame cards found');
+  }
+  gameState.active_player_id = gameState.turn_order[0];
 
   return gameState;
 }
