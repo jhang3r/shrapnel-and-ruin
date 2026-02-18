@@ -29,10 +29,14 @@ Deno.serve(async (req) => {
   if (allReady) {
     const { data: room } = await supabase.from('game_rooms').select('host_id').eq('id', room_id).single();
     if (room?.host_id === user.id) {
-      // Host triggers game start
-      const state = await initGameState(supabase, room_id, players!);
-      await supabase.from('game_rooms').update({ status: 'in_progress' }).eq('id', room_id);
-      await supabase.from('game_state').insert({ room_id, state, phase: 'upkeep', turn_number: 1, active_player_id: players![0].user_id });
+      try {
+        const state = await initGameState(supabase, room_id, players!);
+        await supabase.from('game_rooms').update({ status: 'in_progress' }).eq('id', room_id);
+        await supabase.from('game_state').insert({ room_id, state, phase: 'upkeep', turn_number: 1, active_player_id: players![0].user_id });
+      } catch (err) {
+        console.error('Game start failed:', err);
+        return new Response(JSON.stringify({ error: 'Failed to start game' }), { status: 500 });
+      }
     }
   }
 

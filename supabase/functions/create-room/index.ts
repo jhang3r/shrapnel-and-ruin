@@ -15,11 +15,15 @@ Deno.serve(async (req) => {
   // Generate unique 6-char room code
   let room_code = '';
   let attempts = 0;
+  let codeFound = false;
   while (attempts < 10) {
     room_code = Math.random().toString(36).slice(2, 8).toUpperCase();
     const { data } = await supabase.from('game_rooms').select('id').eq('room_code', room_code).maybeSingle();
-    if (!data) break;
+    if (!data) { codeFound = true; break; }
     attempts++;
+  }
+  if (!codeFound) {
+    return new Response(JSON.stringify({ error: 'Failed to generate unique room code' }), { status: 500 });
   }
 
   const { data: room, error } = await supabase
