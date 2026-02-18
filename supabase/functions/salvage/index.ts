@@ -1,79 +1,98 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-
-// Scrap value by rarity
-const SCRAP_VALUES: Record<string, number> = {
-  common: 5,
-  uncommon: 15,
-  rare: 40,
-  epic: 100,
-  legendary: 250,
-};
+import type { GameState } from '../_shared/types.ts';
 
 Deno.serve(async (req) => {
-  const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
-    { global: { headers: { Authorization: req.headers.get('Authorization')! } } });
+  const supabase = createClient(
+    Deno.env.get('SUPABASE_URL')!,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    { global: { headers: { Authorization: req.headers.get('Authorization')! } } }
+  );
 
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+  if (!user) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401, headers: { 'Content-Type': 'application/json' }
+    });
+  }
 
-  const { card_id, quantity } = await req.json();
-  const qty: number = Math.max(1, Math.floor(quantity ?? 1));
+  const { room_id, target_user_id, card_id } = await req.json();
 
-  // Fetch card definition to get rarity
+  // Membership check
+  const { data: membership } = await supabase
+    .from('game_players').select('user_id').eq('room_id', room_id).eq('user_id', user.id).maybeSingle();
+  if (!membership) {
+    return new Response(JSON.stringify({ error: 'Not a participant' }), {
+      status: 403, headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  const { data: gs } = await supabase.from('game_state').select('*').eq('room_id', room_id).single();
+  const state: GameState = gs?.state;
+  if (!state) {
+    return new Response(JSON.stringify({ error: 'Game not found' }), {
+      status: 404, headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  // Target must be eliminated
+  const target = state.players[target_user_id];
+  if (!target?.is_eliminated) {
+    return new Response(JSON.stringify({ error: 'Target not eliminated' }), {
+      status: 400, headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  // Check card protection rules
   const { data: cardDef } = await supabase
-    .from('card_definitions')
-    .select('id, rarity')
-    .eq('id', card_id)
-    .single();
-  if (!cardDef) return new Response(JSON.stringify({ error: 'Card not found' }), { status: 404, headers: { 'Content-Type': 'application/json' } });
+    .from('card_definitions').select('rarity, is_starter').eq('id', card_id).single();
+  if (!cardDef) {
+    return new Response(JSON.stringify({ error: 'Card not found' }), {
+      status: 404, headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  if (cardDef.is_starter) {
+    return new Response(JSON.stringify({ error: 'Starter cards are protected' }), {
+      status: 403, headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  if (cardDef.rarity === 'legendary') {
+    return new Response(JSON.stringify({ error: 'Legendary cards are protected' }), {
+      status: 403, headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  if (cardDef.rarity === 'epic') {
+    const isProtected = Math.random() < 0.5;
+    if (isProtected) {
+      return new Response(JSON.stringify({ error: 'Epic card was protected this time' }), {
+        status: 403, headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  }
 
-  // Fetch current collection entry
-  const { data: collEntry } = await supabase
+  // Add card to salvager's collection (increment quantity correctly)
+  const { data: existing } = await supabase
     .from('user_collections')
     .select('quantity')
     .eq('user_id', user.id)
     .eq('card_id', card_id)
     .maybeSingle();
 
-  if (!collEntry || collEntry.quantity < qty) {
-    return new Response(JSON.stringify({ error: 'Not enough cards to salvage' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
-  }
-
-  const newQty = collEntry.quantity - qty;
-  if (newQty === 0) {
-    const { error: delErr } = await supabase
-      .from('user_collections')
-      .delete()
+  if (existing) {
+    await supabase.from('user_collections')
+      .update({ quantity: existing.quantity + 1 })
       .eq('user_id', user.id)
       .eq('card_id', card_id);
-    if (delErr) return new Response(JSON.stringify({ error: delErr.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
   } else {
-    const { error: updErr } = await supabase
-      .from('user_collections')
-      .update({ quantity: newQty })
-      .eq('user_id', user.id)
-      .eq('card_id', card_id);
-    if (updErr) return new Response(JSON.stringify({ error: updErr.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    await supabase.from('user_collections').insert({ user_id: user.id, card_id, quantity: 1 });
   }
 
-  // Calculate scrap gain
-  const scrapPerCard = SCRAP_VALUES[cardDef.rarity] ?? 5;
-  const scrapGain = scrapPerCard * qty;
+  // Log to game state
+  state.log.push(`${user.id} salvaged ${card_id} from ${target_user_id}`);
+  await supabase.from('game_state')
+    .update({ state, updated_at: new Date().toISOString() })
+    .eq('room_id', room_id);
 
-  // Fetch current scrap and increment
-  const { data: prof } = await supabase
-    .from('profiles')
-    .select('scrap')
-    .eq('id', user.id)
-    .single();
-  const newScrap = (prof?.scrap ?? 0) + scrapGain;
-  const { error: scrapErr } = await supabase
-    .from('profiles')
-    .update({ scrap: newScrap })
-    .eq('id', user.id);
-  if (scrapErr) return new Response(JSON.stringify({ error: scrapErr.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
-
-  return new Response(JSON.stringify({ ok: true, scrap_gained: scrapGain, new_scrap_total: newScrap }), {
-    headers: { 'Content-Type': 'application/json' },
+  return new Response(JSON.stringify({ ok: true }), {
+    headers: { 'Content-Type': 'application/json' }
   });
 });

@@ -3,15 +3,6 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 const CARDS_PER_PACK = 5;
 const PACK_COST = 100; // scrap cost per pack
 
-// Weighted rarity table
-const RARITY_WEIGHTS: { rarity: string; weight: number }[] = [
-  { rarity: 'common', weight: 60 },
-  { rarity: 'uncommon', weight: 25 },
-  { rarity: 'rare', weight: 10 },
-  { rarity: 'epic', weight: 4 },
-  { rarity: 'legendary', weight: 1 },
-];
-
 function weightedRandom(weights: { rarity: string; weight: number }[]): string {
   const total = weights.reduce((sum, w) => sum + w.weight, 0);
   let roll = Math.random() * total;
@@ -28,6 +19,12 @@ Deno.serve(async (req) => {
 
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+
+  const { pack_id } = await req.json();
+
+  // Fetch pack definition for rarity weights
+  const { data: pack } = await supabase.from('packs').select('*').eq('id', pack_id).single();
+  if (!pack) return new Response(JSON.stringify({ error: 'Pack not found' }), { status: 404, headers: { 'Content-Type': 'application/json' } });
 
   // Fetch profile for scrap balance
   const { data: prof } = await supabase
@@ -51,7 +48,7 @@ Deno.serve(async (req) => {
   // Pull cards using weighted random
   const pulled: string[] = [];
   for (let i = 0; i < CARDS_PER_PACK; i++) {
-    const rarity = weightedRandom(RARITY_WEIGHTS);
+    const rarity = weightedRandom(pack.rarity_weights);
     const pool = byRarity[rarity] ?? [];
     if (pool.length > 0) {
       pulled.push(pool[Math.floor(Math.random() * pool.length)]);
@@ -90,7 +87,7 @@ Deno.serve(async (req) => {
     }
   }
 
-  return new Response(JSON.stringify({ ok: true, pulled }), {
+  return new Response(JSON.stringify({ cards: pulled }), {
     headers: { 'Content-Type': 'application/json' },
   });
 });
