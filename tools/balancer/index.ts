@@ -69,8 +69,8 @@ async function runSimulation(deckIds: string[], numGames = 100): Promise<void> {
         attacker.ap -= 1;
         const { weapon_card_id, target_user_id, target_part } = action.params;
         const weaponStats = cardDefMap[weapon_card_id]?.stats;
-        if (weaponStats) {
-          const damage = rollDice(weaponStats.damage);
+        if (weaponStats && state.players[target_user_id]) {
+          const damage = rollDice(weaponStats.damage ?? '1d6');
           const result = resolveDamage(
             state.players[target_user_id],
             damage,
@@ -78,6 +78,23 @@ async function runSimulation(deckIds: string[], numGames = 100): Promise<void> {
             weaponStats.energy_type ?? 'kinetic'
           );
           state.players[target_user_id] = result.targetState;
+        }
+      } else if (action.action === 'play-card') {
+        // Minimal simulation: just deduct AP (actual card effects are complex to simulate)
+        const attacker = state.players[state.active_player_id];
+        attacker.ap -= 1;
+      }
+
+      // After applying the action, check if the player is out of AP and force-advance if so
+      const currentPlayer = state.players[state.active_player_id];
+      if (currentPlayer && currentPlayer.ap <= 0) {
+        // Force advance turn when AP exhausted
+        if (state.phase === 'build') {
+          state.phase = 'combat';
+        } else {
+          state = advanceTurn(state);
+          state = applyUpkeep(state);
+          turnCount++;
         }
       }
     }

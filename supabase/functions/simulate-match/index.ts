@@ -9,7 +9,7 @@ Deno.serve(async (req) => {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
   );
 
-  const { room_id, ai_user_id } = await req.json();
+  const { room_id, ai_user_id, difficulty = 'normal' } = await req.json();
   if (!room_id || !ai_user_id) {
     return new Response(JSON.stringify({ error: 'Missing room_id or ai_user_id' }), {
       status: 400, headers: { 'Content-Type': 'application/json' }
@@ -36,7 +36,7 @@ Deno.serve(async (req) => {
   // Run AI actions until no more available or turn ends
   let iterations = 0;
   while (state.active_player_id === ai_user_id && iterations < 20) {
-    const action = aiChooseAction(state, ai_user_id, 'normal', cardDefMap);
+    const action = aiChooseAction(state, ai_user_id, difficulty, cardDefMap);
     if (!action) {
       // Advance phase: build → combat; combat → end turn (handled externally)
       if (state.phase === 'build') {
@@ -65,6 +65,12 @@ Deno.serve(async (req) => {
           );
           state.players[target_user_id] = result.targetState;
         }
+      }
+    } else if (action.action === 'play-card') {
+      // Minimal: deduct AP for the card play (full card effects handled by play-card endpoint)
+      const attacker = state.players[ai_user_id];
+      if (attacker && attacker.ap >= 1) {
+        attacker.ap -= 1;
       }
     }
 
