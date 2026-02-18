@@ -95,3 +95,13 @@ exception when others then
   return jsonb_build_object('error', SQLERRM);
 end;
 $$;
+
+create or replace function public.increment_card(p_user_id uuid, p_card_id text, p_amount integer default 1)
+returns void language plpgsql as $$
+begin
+  insert into public.user_collections(user_id, card_id, quantity)
+  values (p_user_id, p_card_id, p_amount)
+  on conflict (user_id, card_id)
+  do update set quantity = public.user_collections.quantity + p_amount;
+end;
+$$;

@@ -32,12 +32,26 @@ Deno.serve(async (req) => {
   const allReady = players?.every(p => p.is_ready) && (players?.length ?? 0) >= 2;
 
   if (allReady) {
-    // Idempotency guard: only the first caller who sees allReady=true will proceed
-    // (room status check done above — if already in_progress we returned early)
+    // Atomic conditional update: only the invocation that transitions from 'pending' → 'in_progress' proceeds
+    const { count } = await supabase
+      .from('game_rooms')
+      .update({ status: 'in_progress' })
+      .eq('id', room_id)
+      .eq('status', 'pending')
+      .select('id', { count: 'exact', head: true });
+
+    if (count === 0) {
+      // Another invocation already started the game — return success without re-initializing
+      return new Response(JSON.stringify({ ok: true, already_started: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // This invocation won the race — proceed with game initialization
     try {
       const state = await initGameState(supabase, room_id, players!);
       await supabase.from('game_state').insert({ room_id, state, phase: 'upkeep', turn_number: 1, active_player_id: players![0].user_id });
-      await supabase.from('game_rooms').update({ status: 'in_progress' }).eq('id', room_id).eq('status', 'pending');
     } catch (err) {
       console.error('Game start failed:', err);
       return new Response(JSON.stringify({ error: 'Failed to start game' }), { status: 500, headers: { 'Content-Type': 'application/json' } });

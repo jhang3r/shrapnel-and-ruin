@@ -25,6 +25,19 @@ Deno.serve(async (req) => {
     });
   }
 
+  const { data: room } = await supabase
+    .from('game_rooms')
+    .select('status')
+    .eq('id', room_id)
+    .single();
+
+  if (!room || room.status !== 'in_progress') {
+    return new Response(JSON.stringify({ error: 'Game is not in progress' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
   const { data: gs } = await supabase.from('game_state').select('*').eq('room_id', room_id).single();
   if (!gs) return new Response(JSON.stringify({ error: 'Game not found' }), { status: 404, headers: { 'Content-Type': 'application/json' } });
 

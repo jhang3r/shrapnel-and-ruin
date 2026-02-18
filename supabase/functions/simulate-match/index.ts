@@ -6,13 +6,42 @@ import type { GameState } from '../_shared/types.ts';
 Deno.serve(async (req) => {
   const supabase = createClient(
     Deno.env.get('SUPABASE_URL')!,
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    { global: { headers: { Authorization: req.headers.get('Authorization')! } } }
   );
 
   const { room_id, ai_user_id, difficulty = 'normal' } = await req.json();
   if (!room_id || !ai_user_id) {
     return new Response(JSON.stringify({ error: 'Missing room_id or ai_user_id' }), {
       status: 400, headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  // Verify caller is a member of this room
+  const { data: membership } = await supabase
+    .from('game_players')
+    .select('user_id')
+    .eq('room_id', room_id)
+    .eq('user_id', user.id)
+    .maybeSingle();
+  if (!membership) {
+    return new Response(JSON.stringify({ error: 'Not a member of this room' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  // Validate ai_user_id is actually an AI slot
+  if (!ai_user_id?.startsWith('ai-')) {
+    return new Response(JSON.stringify({ error: 'Invalid AI user ID' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' }
     });
   }
 
