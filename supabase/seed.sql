@@ -125,4 +125,16 @@ insert into public.card_definitions (id, name, type, rarity, point_cost, stats, 
 
 ('arm-ablative',     'Ablative Shield',  'armor', 'rare',     4,
   '{"armor_points":15,"target_part":"torso"}',
-  '{"effect":"block_10_damage"}', false);
+  '{"effect":"block_10_damage"}', false),
+
+('act-scan',         'Sensor Sweep',     'action', 'common',   1,
+  '{"effect":"draw_1"}',
+  '{"effect":"gain_1_ap"}', true),
+
+('eng-reserve',      'Reserve Cell',     'energy', 'common',   1,
+  '{"ap_gain":1}',
+  '{"effect":"gain_1_ap"}', true),
+
+('arm-buckler',      'Buckler Plate',    'armor',  'common',   1,
+  '{"armor_points":3,"target_part":"any"}',
+  '{"effect":"block_2_damage"}', true);

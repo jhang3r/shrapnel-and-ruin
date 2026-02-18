@@ -1,6 +1,7 @@
 import { redirect, fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { generateGuestUsername } from '$lib/auth';
+import { createStarterDeck } from '$lib/server/starters';
 
 export const load: PageServerLoad = async ({ locals }) => {
   const { user } = await locals.safeGetSession();
@@ -39,6 +40,8 @@ export const actions: Actions = {
     });
     if (profileError) return fail(500, { message: profileError.message });
 
+    await createStarterDeck(locals.supabase, authData.user.id);
+
     // If email confirmation is required, session won't exist yet
     if (!authData.session) {
       return fail(200, { message: 'Check your email to confirm your account before logging in.' });
@@ -65,6 +68,8 @@ export const actions: Actions = {
       profileError = err;
     }
     if (profileError) return fail(500, { message: 'Could not create guest profile. Please try again.' });
+
+    await createStarterDeck(locals.supabase, authData.user.id);
 
     redirect(303, '/lobby');
   },
