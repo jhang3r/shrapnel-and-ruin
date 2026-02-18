@@ -11,6 +11,19 @@ Deno.serve(async (req) => {
 
   const { room_id } = await req.json();
 
+  const { data: membership } = await supabase
+    .from('game_players')
+    .select('user_id')
+    .eq('room_id', room_id)
+    .eq('user_id', user.id)
+    .maybeSingle();
+  if (!membership) {
+    return new Response(JSON.stringify({ error: 'Not a participant' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
   const { data: gs } = await supabase.from('game_state').select('*').eq('room_id', room_id).single();
   if (!gs) return new Response(JSON.stringify({ error: 'Game not found' }), { status: 404, headers: { 'Content-Type': 'application/json' } });
 
